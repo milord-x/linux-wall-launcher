@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "linux-wall-launcher"
-version = "0.1.0"
-description = "GTK app launcher with wallpaper and video-wallpaper switching for Linux desktops"
+name = "lumaq"
+version = "0.2.0"
+description = "GTK launcher with wallpaper and video-wallpaper switching for Linux desktops"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
@@ -23,11 +23,13 @@ classifiers = [
 dependencies = []
 
 [project.gui-scripts]
-wall-launcher = "linux_wall_launcher.main:main"
+lumaq = "lumaq.main:main"
+
+[project.scripts]
+lumaq-toggle = "lumaq.toggle:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

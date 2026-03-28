@@ -12,6 +12,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk
 from .apps import app_label, list_desktop_apps_cached, score_match
 from .backends import BackendManager, WallpaperState, run
 from .config import AppConfig
+from .keys import is_quit_shortcut
 from .preview import resolve_preview_path
 from .styles import install_css
 
@@ -52,23 +53,28 @@ class LauncherApplication(Gtk.Application):
 
         self.window = Gtk.ApplicationWindow(application=self)
         self.window.set_title(self.config.title)
-        self.window.set_default_size(self.config.window_width, self.config.window_height)
-        self.window.set_resizable(True)
+        self.window.set_default_size(self.config.window.width, self.config.window.height)
+        self.window.set_resizable(self.config.window.resizable)
         self.window.set_hide_on_close(True)
 
-        install_css(self.config.theme, self.config.accent_color)
+        install_css(
+            self.config.theme,
+            self.config.accent_color,
+            self.config.panel_color,
+            self.config.panel_soft_color,
+        )
 
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         root.set_name("root")
 
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        left.set_size_request(540, -1)
+        left.set_size_request(self.config.window.preview_width, -1)
         left.set_hexpand(False)
 
         frame = Gtk.Frame()
         frame.set_hexpand(False)
         frame.set_vexpand(True)
-        frame.set_size_request(540, int(540 * 4 / 5))
+        frame.set_size_request(self.config.window.preview_width, int(self.config.window.preview_width * 4 / 5))
 
         self.preview = Gtk.Picture()
         self.preview.set_hexpand(False)
@@ -92,7 +98,7 @@ class LauncherApplication(Gtk.Application):
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         right.set_hexpand(True)
         right.set_vexpand(True)
-        right.set_size_request(270, -1)
+        right.set_size_request(self.config.window.sidebar_width, -1)
         right.set_margin_top(16)
         right.set_margin_bottom(16)
         right.set_margin_start(18)
@@ -138,9 +144,9 @@ class LauncherApplication(Gtk.Application):
         GLib.idle_add(self.focus_search)
 
     def ensure_refresh_timer(self) -> None:
-        if self.refresh_timer_started:
+        if self.refresh_timer_started or self.config.poll_interval <= 0:
             return
-        GLib.timeout_add_seconds(1, self.poll_wallpaper_state)
+        GLib.timeout_add_seconds(self.config.poll_interval, self.poll_wallpaper_state)
         self.refresh_timer_started = True
 
     def load_initial_state(self) -> bool:
@@ -246,10 +252,10 @@ class LauncherApplication(Gtk.Application):
         return True
 
     def on_key(self, _controller, keyval, _keycode, state) -> bool:
-        if keyval == Gdk.KEY_q and (state & Gdk.ModifierType.CONTROL_MASK):
+        if is_quit_shortcut(keyval, state, self.config.quit_chars):
             self.quit()
             return True
-        if keyval == Gdk.KEY_Escape and self.window is not None:
+        if keyval == Gdk.KEY_Escape and self.window is not None and self.config.hide_on_escape:
             self.window.hide()
             return True
         return False

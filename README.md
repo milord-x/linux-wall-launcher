@@ -1,26 +1,22 @@
-# Linux Wall Launcher
+# Lumaq
 
-`Linux Wall Launcher` is a GTK4 desktop launcher for Linux with a live wallpaper pane. It opens fast, stays resident after the first launch, and can switch wallpapers with swipe gestures while still acting as an application launcher.
+`Lumaq` is a GTK4 launcher for Linux that keeps the current wallpaper visible, tracks external wallpaper changes, and can switch both static and video wallpapers.
 
-It is packaged as an installable program, not just a one-file script.
+It is packaged as an installable program, not as a single local script.
 
 ## What it supports
 
 - Fast reopen after first launch through single-instance hide/show behavior
-- Live refresh of the current wallpaper while the launcher is open or reopened
+- Three close paths:
+  - repeat your window-manager bind via `lumaq-toggle`
+  - `Esc` hides the window
+  - `Ctrl+Q` quits the process, with configurable quit characters for non-English layouts
+- Live refresh when wallpaper changes outside the launcher
 - App search and launch from desktop entries
-- Wallpaper switching for:
-  - `swww`
-  - `mpvpaper`
-  - `hyprpaper`
-  - `swaybg`
-  - `feh`
-  - `nitrogen`
-- Video wallpaper browsing when `mpvpaper` is the active backend
+- Wallpaper switching for `swww`, `mpvpaper`, `hyprpaper`, `swaybg`, `feh`, and `nitrogen`
 - Video wallpaper preview through generated thumbnails via `ffmpeg`
-- Theme selection: `auto`, `dark`, `light`
-- Accent color override
-- Monitor/output override for output-aware backends
+- Theme support with `auto`, `dark`, `light`, accent color, and optional panel color overrides
+- Config file in `~/.config/lumaq/config.toml`
 - Better portability across Linux desktops through backend auto-detection plus explicit backend forcing
 
 ## Install
@@ -29,49 +25,83 @@ System packages you usually need:
 
 ```bash
 # Debian / Ubuntu
-sudo apt install python3 python3-gi gir1.2-gtk-4.0
+sudo apt install python3 python3-gi gir1.2-gtk-4.0 ffmpeg
 
 # Arch
-sudo pacman -S python python-gobject gtk4
+sudo pacman -S python python-gobject gtk4 ffmpeg
 
 # Fedora
-sudo dnf install python3-gobject gtk4
+sudo dnf install python3-gobject gtk4 ffmpeg
 ```
 
 Install as a program:
 
 ```bash
-pipx install git+https://github.com/milord-x/linux-wall-launcher.git
+pipx install git+https://github.com/milord-x/lumaq.git
 ```
 
-That gives you the executable:
+That gives you:
 
 ```bash
-wall-launcher
+lumaq
+lumaq-toggle
 ```
 
-You can also run from source:
+Run from source:
 
 ```bash
-python3 -m linux_wall_launcher.main
+python3 -m lumaq.main
 ```
 
-## Configuration
+## Config path
 
-Environment variables:
-
-- `LAUNCHER_BACKEND=auto|swww|mpvpaper|hyprpaper|swaybg|feh|nitrogen`
-- `LAUNCHER_OUTPUT=<monitor-name>`
-- `WALL_DIR=/path/to/media`
-- `LAUNCHER_THEME=auto|dark|light`
-- `LAUNCHER_ACCENT=#4da3ff`
-- `MPVPAPER_ARGS="-f -s -o 'no-audio loop'"`
-
-CLI flags:
+The active config file is:
 
 ```bash
-wall-launcher --backend mpvpaper --theme dark --accent '#7cd47b'
+~/.config/lumaq/config.toml
 ```
+
+Print it directly:
+
+```bash
+lumaq --print-config-path
+```
+
+Create the default config:
+
+```bash
+lumaq --write-default-config
+```
+
+## Config example
+
+```toml
+[app]
+backend = "auto"
+media_dir = "~/Pictures/Wallpapers"
+output = ""
+poll_interval = 1
+hide_on_escape = true
+quit_chars = ["q", "й"]
+
+[theme]
+mode = "dark"
+accent_color = "#4da3ff"
+# panel_color = "#000000"
+# panel_soft_color = "#000000"
+
+[window]
+width = 940
+height = 520
+preview_width = 540
+sidebar_width = 270
+resizable = false
+anchor = "center"
+margin_x = 0
+margin_y = 0
+```
+
+`anchor`, `margin_x`, and `margin_y` are used by `lumaq-toggle` on Hyprland when it places the floating window.
 
 ## Controls
 
@@ -80,41 +110,44 @@ wall-launcher --backend mpvpaper --theme dark --accent '#7cd47b'
 - `Enter`: launch selected app
 - Swipe left/right on the preview pane: switch wallpaper or video wallpaper
 
+## WM binding
+
+For Hyprland, bind the toggle helper instead of the GUI binary:
+
+```text
+bind = $mainMod, R, exec, lumaq-toggle
+windowrule = match:class ^(dev\.milordx\.Lumaq)$, float on
+```
+
+That gives repeated-bind close behavior without killing the resident process on every open.
+
 ## Notes on portability
 
 - On Hyprland, `swww`, `hyprpaper`, and `mpvpaper` are supported
 - On wlroots compositors, `swaybg` is supported
 - On X11 setups, `feh` and `nitrogen` are supported
-- If auto-detection is not correct on a given machine, force the backend with `LAUNCHER_BACKEND`
-- If your wallpaper backend is output-specific, set `LAUNCHER_OUTPUT`
-
-## Desktop file
-
-A desktop entry template is included at:
-
-`assets/wall-launcher.desktop`
-
-You can install it manually into:
-
-```bash
-~/.local/share/applications/
-```
+- If auto-detection is not correct on a given machine, force the backend in config or with `--backend`
+- If your wallpaper backend is output-specific, set `output`
+- If you want local-only pure black styling, set `panel_color` and `panel_soft_color` in your config instead of patching the package
 
 ## Development
 
 Project layout:
 
 ```text
-src/linux_wall_launcher/config.py
-src/linux_wall_launcher/backends.py
-src/linux_wall_launcher/apps.py
-src/linux_wall_launcher/styles.py
-src/linux_wall_launcher/app.py
-src/linux_wall_launcher/main.py
+src/lumaq/config.py
+src/lumaq/keys.py
+src/lumaq/backends.py
+src/lumaq/apps.py
+src/lumaq/preview.py
+src/lumaq/styles.py
+src/lumaq/app.py
+src/lumaq/toggle.py
+src/lumaq/main.py
 ```
 
 Local sanity check:
 
 ```bash
-python3 -m py_compile launcher src/linux_wall_launcher/*.py
+python3 -m py_compile lumaq src/lumaq/*.py
 ```

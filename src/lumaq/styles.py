@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import Optional
 
 import gi
 
@@ -23,19 +24,19 @@ def prefer_dark(theme: str) -> bool:
     return True
 
 
-def build_css(theme: str, accent: str) -> str:
+def build_css(theme: str, accent: str, panel_override: Optional[str], panel_soft_override: Optional[str]) -> str:
     dark = prefer_dark(theme)
     if dark:
-        panel = "#08090b"
-        panel_soft = "#111317"
+        panel = panel_override or "#08090b"
+        panel_soft = panel_soft_override or "#111317"
         fg = "#eaeaea"
         fg_soft = "#9ea7b3"
         border = "rgba(255,255,255,0.10)"
         border_focus = "rgba(255,255,255,0.22)"
         row_hover = "rgba(255,255,255,0.05)"
     else:
-        panel = "#f6f7f9"
-        panel_soft = "#ffffff"
+        panel = panel_override or "#f6f7f9"
+        panel_soft = panel_soft_override or "#ffffff"
         fg = "#15181c"
         fg_soft = "#5f6a77"
         border = "rgba(0,0,0,0.10)"
@@ -91,14 +92,14 @@ undershoot.top, undershoot.bottom, undershoot.left, undershoot.right {{
 """
 
 
-def install_css(theme: str, accent: str) -> None:
+def install_css(theme: str, accent: str, panel_override: Optional[str], panel_soft_override: Optional[str]) -> None:
     global _CSS_PROVIDER
 
     display = Gdk.Display.get_default()
     if display is None:
         return
 
-    css = build_css(theme, accent)
+    css = build_css(theme, accent, panel_override, panel_soft_override)
     provider = Gtk.CssProvider()
     provider.load_from_data(css.encode())
     Gtk.StyleContext.add_provider_for_display(

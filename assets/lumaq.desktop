@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Wall Launcher
+Name=Lumaq
 Comment=GTK application launcher with wallpaper switching
-Exec=wall-launcher
+Exec=lumaq
 Terminal=false
 Categories=Utility;GTK;
 StartupNotify=true
