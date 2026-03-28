@@ -40,6 +40,9 @@ class LauncherApplication(Gtk.Application):
         self.wall_idx = 0
         self.refresh_timer_started = False
         self.preview_job_path: Optional[str] = None
+        self.state_refresh_running = False
+        self.current_preview_path: Optional[str] = None
+        self.current_meta_text: Optional[str] = None
 
     def do_activate(self) -> None:
         if self.window is not None:
@@ -171,15 +174,26 @@ class LauncherApplication(Gtk.Application):
             self.populate_list()
 
     def refresh_wallpaper_state(self) -> bool:
-        state = self.backend_manager.detect_state()
+        if self.state_refresh_running:
+            return False
+
+        self.state_refresh_running = True
+
+        def worker() -> None:
+            state = self.backend_manager.detect_state()
+            GLib.idle_add(self.apply_wallpaper_state, state)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return False
+
+    def apply_wallpaper_state(self, state: Optional[WallpaperState]) -> bool:
+        self.state_refresh_running = False
         previous = self.current_state
         self.current_state = state
 
         if state is None or not state.path:
-            if self.preview_meta is not None and self.config.show_preview_meta:
-                self.preview_meta.set_text("No supported wallpaper backend detected")
-            if self.preview is not None:
-                self.preview.set_paintable(None)
+            self.set_meta_text("No supported wallpaper backend detected")
+            self.set_preview_path(None)
             return False
 
         if (
@@ -191,25 +205,51 @@ class LauncherApplication(Gtk.Application):
             self.wallpapers = []
 
         self.current_wallpaper = state.path
-        if self.preview_meta is not None and self.config.show_preview_meta:
+        if self.config.show_preview_meta:
             bits = [state.backend]
             if state.output:
                 bits.append(state.output)
             bits.append(state.path.rsplit("/", 1)[-1])
-            self.preview_meta.set_text(" / ".join(bits))
+            self.set_meta_text(" / ".join(bits))
+        else:
+            self.set_meta_text(None)
 
-        if self.preview is not None:
-            try:
-                preview_path = resolve_preview_path(self.config, state, generate=False)
-                if preview_path is None:
-                    self.preview.set_paintable(None)
-                    if state.media_kind == "video":
-                        self.ensure_preview_job(state.path)
-                else:
-                    self.preview.set_filename(preview_path)
-            except Exception:
-                self.preview.set_paintable(None)
+        try:
+            preview_path = resolve_preview_path(self.config, state, generate=False)
+            if preview_path is None:
+                self.set_preview_path(None)
+                if state.media_kind == "video":
+                    self.ensure_preview_job(state.path)
+            else:
+                self.set_preview_path(preview_path)
+        except Exception:
+            self.set_preview_path(None)
         return False
+
+    def set_meta_text(self, text: Optional[str]) -> None:
+        if self.preview_meta is None:
+            return
+        if not self.config.show_preview_meta:
+            self.preview_meta.set_visible(False)
+            self.current_meta_text = None
+            return
+        self.preview_meta.set_visible(True)
+        normalized = text or ""
+        if normalized == self.current_meta_text:
+            return
+        self.preview_meta.set_text(normalized)
+        self.current_meta_text = normalized
+
+    def set_preview_path(self, preview_path: Optional[str]) -> None:
+        if self.preview is None:
+            return
+        if preview_path == self.current_preview_path:
+            return
+        self.current_preview_path = preview_path
+        if preview_path is None:
+            self.preview.set_paintable(None)
+            return
+        self.preview.set_filename(preview_path)
 
     def ensure_preview_job(self, path: str) -> None:
         if self.preview_job_path == path:
@@ -230,12 +270,11 @@ class LauncherApplication(Gtk.Application):
             preview_path
             and self.current_state is not None
             and self.current_state.path == expected_path
-            and self.preview is not None
         ):
             try:
-                self.preview.set_filename(preview_path)
+                self.set_preview_path(preview_path)
             except Exception:
-                self.preview.set_paintable(None)
+                self.set_preview_path(None)
         return False
 
     def ensure_media_loaded(self) -> None:
