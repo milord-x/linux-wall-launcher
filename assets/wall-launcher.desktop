@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Wall Launcher
+Comment=GTK application launcher with wallpaper switching
+Exec=wall-launcher
+Terminal=false
+Categories=Utility;GTK;
+StartupNotify=true

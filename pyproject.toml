@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "linux-wall-launcher"
+version = "0.1.0"
+description = "GTK app launcher with wallpaper and video-wallpaper switching for Linux desktops"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "milord-x" }
+]
+keywords = ["gtk", "launcher", "linux", "wallpaper", "mpvpaper", "swww"]
+classifiers = [
+  "Environment :: X11 Applications :: GTK",
+  "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
+dependencies = []
+
+[project.gui-scripts]
+wall-launcher = "linux_wall_launcher.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
