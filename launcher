@@ -1,0 +1,711 @@
+#!/usr/bin/env python3
+import signal
+import os
+import re
+import shlex
+import shutil
+import subprocess
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
+
+import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gtk, Gio, Gdk, GLib
+
+# Папка с обоями/видео для свайпа.
+WALL_DIR = os.path.expanduser(os.environ.get("WALL_DIR", "~/Pictures/Wallpapers"))
+SWWW_CACHE_DIR = os.path.expanduser("~/.cache/swww")
+HYPRPAPER_CONF = os.path.expanduser("~/.config/hypr/hyprpaper.conf")
+
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
+VIDEO_EXTS = (".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v")
+MEDIA_EXTS = IMAGE_EXTS + VIDEO_EXTS
+
+# Кэш приложения в памяти процесса (ускоряет повторные открытия при single-instance)
+_CSS_PROVIDER_INSTALLED = False
+_APPS_ALL: Optional[List[Gio.AppInfo]] = None
+_APPS_SEARCH_TEXT: Optional[List[str]] = None
+
+
+@dataclass
+class WallpaperState:
+    backend: str
+    path: str
+    output: Optional[str] = None
+    fit_mode: Optional[str] = None
+    media_kind: str = "image"
+    pid: Optional[int] = None
+    launcher_args: List[str] = field(default_factory=list)
+
+
+def run(cmd: List[str]) -> Tuple[int, str]:
+    try:
+        p = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        return p.returncode, (p.stdout or "").strip()
+    except FileNotFoundError:
+        return 127, ""
+
+
+def run_detached(cmd: List[str]) -> bool:
+    try:
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def media_kind_for_path(path: str) -> str:
+    return "video" if path.lower().endswith(VIDEO_EXTS) else "image"
+
+
+def preferred_backend() -> str:
+    return (os.environ.get("LAUNCHER_BACKEND") or "auto").strip().lower()
+
+
+def preferred_output() -> Optional[str]:
+    return (os.environ.get("LAUNCHER_OUTPUT") or "").strip() or None
+
+
+def default_mpvpaper_args() -> List[str]:
+    value = (os.environ.get("MPVPAPER_ARGS") or "").strip()
+    return shlex.split(value) if value else ["-f", "-s", "-o", "no-audio loop"]
+
+
+def detect_swww_state() -> Optional[WallpaperState]:
+    if os.path.isdir(SWWW_CACHE_DIR):
+        try:
+            cache_files = [
+                os.path.join(SWWW_CACHE_DIR, name)
+                for name in os.listdir(SWWW_CACHE_DIR)
+                if os.path.isfile(os.path.join(SWWW_CACHE_DIR, name))
+            ]
+            cache_files.sort(key=os.path.getmtime, reverse=True)
+
+            for cache_path in cache_files:
+                data = open(cache_path, "rb").read()
+                parts = [p.decode("utf-8", errors="ignore").strip() for p in data.split(b"\0") if p]
+                for part in reversed(parts):
+                    if part.startswith("/") and os.path.exists(part):
+                        return WallpaperState(
+                            backend="swww",
+                            path=part,
+                            output=os.path.basename(cache_path),
+                            media_kind=media_kind_for_path(part),
+                        )
+        except Exception:
+            pass
+    return None
+
+
+def detect_mpvpaper_state() -> Optional[WallpaperState]:
+    try:
+        pids = sorted((int(name) for name in os.listdir("/proc") if name.isdigit()), reverse=True)
+    except Exception:
+        return None
+
+    for pid in pids:
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                raw = fh.read()
+        except OSError:
+            continue
+
+        parts = [p.decode("utf-8", errors="ignore") for p in raw.split(b"\0") if p]
+        if len(parts) < 3:
+            continue
+        if os.path.basename(parts[0]) != "mpvpaper":
+            continue
+
+        path = parts[-1]
+        output = parts[-2]
+        if not os.path.exists(path):
+            continue
+
+        return WallpaperState(
+            backend="mpvpaper",
+            path=path,
+            output=output,
+            media_kind=media_kind_for_path(path),
+            pid=pid,
+            launcher_args=parts[1:-2],
+        )
+
+    return None
+
+
+def detect_hyprpaper_state() -> Optional[WallpaperState]:
+    if os.path.exists(HYPRPAPER_CONF):
+        try:
+            data = open(HYPRPAPER_CONF, "r", encoding="utf-8", errors="ignore").read()
+            matches = list(
+                re.finditer(
+                    r"^\s*wallpaper\s*=\s*([^,]+?)\s*,\s*([^,]+?)(?:\s*,\s*([^\s,]+))?\s*$",
+                    data,
+                    flags=re.MULTILINE,
+                )
+            )
+            if matches:
+                last = matches[-1]
+                output = last.group(1).strip()
+                path = os.path.expanduser(last.group(2).strip())
+                fit_mode = (last.group(3) or "").strip() or None
+                if os.path.exists(path):
+                    return WallpaperState(
+                        backend="hyprpaper",
+                        path=path,
+                        output=output,
+                        fit_mode=fit_mode,
+                        media_kind=media_kind_for_path(path),
+                    )
+
+            preload = re.search(r"^\s*preload\s*=\s*(.+?)\s*$", data, flags=re.MULTILINE)
+            if preload:
+                path = os.path.expanduser(preload.group(1).strip())
+                if os.path.exists(path):
+                    return WallpaperState(
+                        backend="hyprpaper",
+                        path=path,
+                        output=preferred_output(),
+                        media_kind=media_kind_for_path(path),
+                    )
+        except Exception:
+            pass
+    return None
+
+
+def detect_wallpaper_state() -> Optional[WallpaperState]:
+    forced = preferred_backend()
+    detectors = {
+        "mpvpaper": detect_mpvpaper_state,
+        "swww": detect_swww_state,
+        "hyprpaper": detect_hyprpaper_state,
+    }
+
+    if forced in detectors:
+        state = detectors[forced]()
+        if state is not None:
+            return state
+        return WallpaperState(
+            backend=forced,
+            path="",
+            output=preferred_output(),
+            media_kind="video" if forced == "mpvpaper" else "image",
+            launcher_args=default_mpvpaper_args() if forced == "mpvpaper" else [],
+        )
+
+    for name in ("mpvpaper", "swww", "hyprpaper"):
+        state = detectors[name]()
+        if state is not None:
+            return state
+
+    return None
+
+
+def get_wallpaper_path() -> Optional[str]:
+    state = detect_wallpaper_state()
+    return state.path if state and state.path else None
+
+
+def wallpaper_dir(current_path: Optional[str] = None) -> Optional[str]:
+    if os.path.isdir(WALL_DIR):
+        return WALL_DIR
+    if current_path:
+        candidate = os.path.dirname(current_path)
+        if candidate and os.path.isdir(candidate):
+            return candidate
+    return None
+
+
+def list_wallpapers(current_path: Optional[str] = None, exts: Tuple[str, ...] = IMAGE_EXTS) -> List[str]:
+    base_dir = wallpaper_dir(current_path)
+    if not base_dir:
+        return []
+
+    files: List[str] = []
+    for entry in os.scandir(base_dir):
+        if entry.is_file() and entry.name.lower().endswith(exts):
+            files.append(entry.path)
+    files.sort()
+    return files
+
+
+def supported_media_extensions(state: Optional[WallpaperState]) -> Tuple[str, ...]:
+    if state and state.backend == "mpvpaper":
+        return MEDIA_EXTS
+    return IMAGE_EXTS
+
+
+def apply_wallpaper(state: WallpaperState, path: str) -> bool:
+    backend = state.backend or "swww"
+    if backend == "swww":
+        return run(["swww", "img", path])[0] == 0
+
+    if backend == "hyprpaper":
+        output = preferred_output() or state.output
+        if not output:
+            return False
+        request = f"{output},{path}"
+        if state.fit_mode:
+            request += f",{state.fit_mode}"
+        return run(["hyprctl", "hyprpaper", "wallpaper", request])[0] == 0
+
+    if backend == "mpvpaper":
+        output = preferred_output() or state.output
+        if not output:
+            return False
+        if state.pid is not None:
+            try:
+                os.kill(state.pid, signal.SIGTERM)
+            except OSError:
+                pass
+        args = state.launcher_args or default_mpvpaper_args()
+        return run_detached(["mpvpaper", *args, output, path])
+
+    return False
+
+
+def app_label(app: Gio.AppInfo) -> str:
+    name = app.get_display_name() or app.get_name() or ""
+    return name.strip()
+
+
+def app_search_text(app: Gio.AppInfo) -> str:
+    # Собираем строку поиска один раз и кэшируем (это ускоряет filter_apps)
+    parts = [app_label(app)]
+    try:
+        if isinstance(app, Gio.DesktopAppInfo):
+            did = app.get_id() or ""
+            exe = app.get_executable() or ""
+            parts += [did, exe]
+    except Exception:
+        pass
+    return " ".join([p for p in parts if p]).lower()
+
+
+def is_subsequence(needle: str, hay: str) -> bool:
+    it = iter(hay)
+    return all(ch in it for ch in needle)
+
+
+def score_match(q: str, text: str) -> int:
+    if not q:
+        return 1
+    if text.startswith(q):
+        return 4000
+    for w in text.split():
+        if w.startswith(q):
+            return 3000
+    if q in text:
+        return 2000 - (len(text) - len(q))
+    if len(q) >= 2 and is_subsequence(q, text):
+        return 900 - (len(text) - len(q))
+    return 0
+
+
+def list_desktop_apps_cached() -> Tuple[List[Gio.AppInfo], List[str]]:
+    """
+    Главный ускоритель без демона:
+    - Gio.AppInfo.get_all() и сортировка выполняются один раз за процесс.
+    - Строки поиска (lower) тоже готовятся один раз.
+    Это НЕ ускорит самый первый cold start Python+GTK, но ускорит:
+    - повторные show/hide в рамках single-instance
+    - фильтрацию при вводе
+    """
+    global _APPS_ALL, _APPS_SEARCH_TEXT
+    if _APPS_ALL is not None and _APPS_SEARCH_TEXT is not None:
+        return _APPS_ALL, _APPS_SEARCH_TEXT
+
+    apps: List[Gio.AppInfo] = []
+    for app in Gio.AppInfo.get_all():
+        if not app.should_show():
+            continue
+        apps.append(app)
+
+    apps.sort(key=lambda a: app_label(a).lower())
+    texts = [app_search_text(a) for a in apps]
+
+    _APPS_ALL = apps
+    _APPS_SEARCH_TEXT = texts
+    return apps, texts
+
+
+def install_css_once():
+    global _CSS_PROVIDER_INSTALLED
+    if _CSS_PROVIDER_INSTALLED:
+        return
+
+    css = """
+overshoot.top, overshoot.bottom, overshoot.left, overshoot.right,
+undershoot.top, undershoot.bottom, undershoot.left, undershoot.right {
+  background: transparent;
+}
+
+window { border-radius: 0px; }
+
+#search {
+  background: #000000;
+  color: #eaeaea;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+#search:focus {
+  background: rgba(10,10,10,0.88);
+  border: 1px solid rgba(255,255,255,0.22);
+}
+
+#apps label {
+  font-weight: 700;
+}
+"""
+    provider = Gtk.CssProvider()
+    provider.load_from_data(css.encode())
+    Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(),
+        provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+    )
+    _CSS_PROVIDER_INSTALLED = True
+
+
+class Launcher(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="dev.proxy.gtkwalllauncher", flags=Gio.ApplicationFlags.FLAGS_NONE)
+        self.apps_all: List[Gio.AppInfo] = []
+        self.apps_text: List[str] = []
+        self.apps_filtered_idx: List[int] = []
+
+        self.listbox: Gtk.ListBox = None  # type: ignore
+        self.search: Gtk.SearchEntry = None  # type: ignore
+        self.win: Gtk.ApplicationWindow = None  # type: ignore
+
+        self.wallpapers: List[str] = []
+        self.wall_idx: int = 0
+        self.current_wallpaper: Optional[str] = None
+        self.current_state: Optional[WallpaperState] = None
+        self.pic: Gtk.Picture = None  # type: ignore
+        self.preview_meta: Gtk.Label = None  # type: ignore
+
+    def do_activate(self):
+        # Если окно уже создано — просто показать/фокус
+        if self.win is not None:
+            self.prepare_for_show()
+            self.win.present()
+            GLib.idle_add(self.refresh_wallpaper_state)
+            GLib.idle_add(self.focus_search)
+            return
+
+        # Кэшированные приложения
+        self.apps_all, self.apps_text = list_desktop_apps_cached()
+        self.apps_filtered_idx = list(range(len(self.apps_all)))
+
+        self.win = Gtk.ApplicationWindow(application=self)
+        self.win.set_title("GTK Wall Launcher")
+        self.win.set_default_size(940, 520)
+        self.win.set_resizable(True)
+        self.win.set_hide_on_close(True)
+
+        install_css_once()
+
+        # Center request (Hyprland rules решают окончательно)
+        self.win.set_default_widget(None)
+        self.win.set_gravity(Gdk.Gravity.CENTER)
+
+        # Root: без отступов, чтобы фото было "в край"
+        root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+
+        # LEFT: wallpaper preview
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        left.set_size_request(540, -1)
+        left.set_hexpand(False)
+        left.set_homogeneous(False)
+
+        frame = Gtk.Frame()
+        frame.set_hexpand(False)
+        frame.set_vexpand(True)
+
+        pic = Gtk.Picture()
+        self.pic = pic
+        pic.set_hexpand(False)
+        pic.set_vexpand(True)
+        pic.set_content_fit(Gtk.ContentFit.COVER)
+        frame.set_child(pic)
+        left.append(frame)
+
+        meta = Gtk.Label(xalign=0)
+        self.preview_meta = meta
+        meta.set_wrap(True)
+        meta.set_margin_top(8)
+        meta.set_margin_start(4)
+        meta.set_margin_end(4)
+        left.append(meta)
+
+        # LEFT ratio: 5:4
+        frame.set_size_request(540, int(540 * 4 / 5))
+
+        swipe = Gtk.GestureSwipe()
+        swipe.connect("end", self.on_swipe_end)
+        pic.add_controller(swipe)
+
+        # RIGHT
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        right.set_hexpand(True)
+        right.set_vexpand(True)
+        right.set_size_request(270, -1)
+
+        right.set_margin_top(16)
+        right.set_margin_bottom(16)
+        right.set_margin_end(16)
+        right.set_margin_start(18)
+
+        # Topbar: search
+        topbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        topbar.set_hexpand(True)
+
+        self.search = Gtk.SearchEntry()
+        self.search.set_name("search")
+        self.search.set_placeholder_text("Search…")
+        self.search.set_hexpand(True)
+        self.search.connect("search-changed", self.on_search_changed)
+        self.search.connect("activate", self.on_activate_enter)
+
+        topbar.append(self.search)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_hexpand(True)
+        scroller.set_vexpand(True)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        self.listbox = Gtk.ListBox()
+        self.listbox.set_name("apps")
+        self.listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.listbox.set_activate_on_single_click(True)
+        self.listbox.connect("row-activated", self.on_row_activated)
+
+        scroller.set_child(self.listbox)
+
+        right.append(topbar)
+        right.append(scroller)
+
+        root.append(left)
+        root.append(right)
+        self.win.set_child(root)
+
+        # Esc: quit
+        ctrl = Gtk.EventControllerKey()
+        ctrl.connect("key-pressed", self.on_key)
+        self.win.add_controller(ctrl)
+
+        self.win.present()
+        GLib.idle_add(self.load_initial_state)
+        GLib.idle_add(self.focus_search)
+
+    def prepare_for_show(self):
+        if self.search:
+            self.search.set_text("")
+        if self.apps_all:
+            self.apps_filtered_idx = list(range(len(self.apps_all)))
+            self.populate_list()
+
+    def load_initial_state(self):
+        self.prepare_for_show()
+        self.refresh_wallpaper_state()
+        return False
+
+    def refresh_wallpaper_state(self):
+        state = detect_wallpaper_state()
+        if state is None or not state.path:
+            self.current_state = state
+            if self.preview_meta:
+                self.preview_meta.set_text("No wallpaper backend detected")
+            return False
+
+        self.current_state = state
+        self.current_wallpaper = state.path
+        if self.preview_meta:
+            backend_bits = [state.backend]
+            if state.output:
+                backend_bits.append(state.output)
+            backend_bits.append(os.path.basename(state.path))
+            self.preview_meta.set_text(" / ".join(backend_bits))
+
+        try:
+            if state.media_kind == "video":
+                self.pic.set_paintable(None)
+            else:
+                self.pic.set_filename(state.path)
+        except Exception:
+            pass
+        return False
+
+    def ensure_wallpapers_loaded(self):
+        if self.wallpapers:
+            return
+
+        state = self.current_state or detect_wallpaper_state()
+        self.wallpapers = list_wallpapers(
+            self.current_wallpaper or get_wallpaper_path(),
+            supported_media_extensions(state),
+        )
+        if self.current_wallpaper and self.wallpapers:
+            try:
+                self.wall_idx = self.wallpapers.index(self.current_wallpaper)
+            except ValueError:
+                self.wall_idx = 0
+
+    def focus_search(self):
+        if self.search:
+            self.search.grab_focus()
+        return False
+
+    def on_key(self, _controller, keyval, _keycode, state):
+        if keyval == Gdk.KEY_q and (state & Gdk.ModifierType.CONTROL_MASK):
+            self.quit()
+            return True
+        if keyval == Gdk.KEY_Escape:
+            if self.win is not None:
+                self.win.hide()
+            return True
+        return False
+
+    def on_swipe_end(self, _gesture, vx, vy):
+        if abs(vx) <= abs(vy) or abs(vx) < 200:
+            return
+
+        if self.current_state is None:
+            self.current_state = detect_wallpaper_state()
+        if self.current_state is None:
+            return
+
+        self.ensure_wallpapers_loaded()
+        if not self.wallpapers:
+            return
+
+        if vx < 0:
+            self.wall_idx = (self.wall_idx + 1) % len(self.wallpapers)
+        else:
+            self.wall_idx = (self.wall_idx - 1) % len(self.wallpapers)
+
+        path = self.wallpapers[self.wall_idx]
+        if not apply_wallpaper(self.current_state, path):
+            return
+
+        self.current_state.path = path
+        self.current_state.media_kind = media_kind_for_path(path)
+        if self.current_state.backend == "mpvpaper":
+            self.current_state.pid = None
+        self.current_wallpaper = path
+        self.refresh_wallpaper_state()
+
+    def populate_list(self):
+        # clear
+        child = self.listbox.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.listbox.remove(child)
+            child = nxt
+
+        # заполняем по индексам (это быстрее и не пересоздаёт search_text каждый раз)
+        for idx in self.apps_filtered_idx:
+            app = self.apps_all[idx]
+            row = Gtk.ListBoxRow()
+
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            box.set_margin_top(6)
+            box.set_margin_bottom(6)
+            box.set_margin_start(8)
+            box.set_margin_end(8)
+
+            icon = Gtk.Image.new_from_gicon(app.get_icon())
+            icon.set_pixel_size(30)
+
+            label = Gtk.Label(label=app_label(app), xalign=0)
+            label.set_hexpand(True)
+
+            box.append(icon)
+            box.append(label)
+            row.set_child(box)
+            row._appinfo = app  # type: ignore[attr-defined]
+            self.listbox.append(row)
+
+        first = self.listbox.get_first_child()
+        if isinstance(first, Gtk.ListBoxRow):
+            self.listbox.select_row(first)
+
+    def filter_apps(self, q: str):
+        q = (q or "").strip().lower()
+        if not q:
+            self.apps_filtered_idx = list(range(len(self.apps_all)))
+            return
+
+        tokens = [t for t in q.split() if t]
+        scored: List[Tuple[int, int]] = []
+
+        # работаем по уже подготовленным lower-строкам
+        for i, text in enumerate(self.apps_text):
+            total = 0
+            ok = True
+            for t in tokens:
+                s = score_match(t, text)
+                if s == 0:
+                    ok = False
+                    break
+                total += s
+            if ok:
+                scored.append((total, i))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        self.apps_filtered_idx = [i for _, i in scored]
+
+    def on_search_changed(self, _entry):
+        self.filter_apps(self.search.get_text() if self.search else "")
+        self.populate_list()
+
+    def selected_app(self) -> Optional[Gio.AppInfo]:
+        row = self.listbox.get_selected_row()
+        if row is None:
+            return None
+        return getattr(row, "_appinfo", None)
+
+    def on_activate_enter(self, _entry):
+        app = self.selected_app()
+        if app:
+            self.launch(app)
+
+    def on_row_activated(self, _lb, row: Gtk.ListBoxRow):
+        app = getattr(row, "_appinfo", None)
+        if app:
+            self.launch(app)
+
+    def launch(self, app: Gio.AppInfo):
+        try:
+            app.launch([], None)
+        except Exception:
+            if isinstance(app, Gio.DesktopAppInfo):
+                did = app.get_id()
+                if did:
+                    run(["gtk-launch", did])
+        if self.win is not None:
+            self.win.hide()
+
+
+def main():
+    app = Launcher()
+    raise SystemExit(app.run(None))
+
+
+if __name__ == "__main__":
+    main()
