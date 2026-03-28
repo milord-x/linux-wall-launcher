@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from typing import List, Optional, Tuple
 
 import gi
@@ -36,11 +37,12 @@ class LauncherApplication(Gtk.Application):
         self.wallpapers: List[str] = []
         self.wall_idx = 0
         self.refresh_timer_started = False
+        self.preview_job_path: Optional[str] = None
 
     def do_activate(self) -> None:
         if self.window is not None:
-            self.prepare_for_show()
             self.window.present()
+            GLib.idle_add(self.prepare_for_show)
             GLib.idle_add(self.refresh_wallpaper_state)
             GLib.idle_add(self.focus_search)
             return
@@ -147,8 +149,10 @@ class LauncherApplication(Gtk.Application):
         return False
 
     def prepare_for_show(self) -> None:
-        if self.search is not None:
+        if self.search is not None and self.search.get_text():
             self.search.set_text("")
+        if self.listbox is not None and self.listbox.get_first_child() is not None:
+            return
         if self.apps_all:
             self.apps_filtered_idx = list(range(len(self.apps_all)))
             self.populate_list()
@@ -183,11 +187,40 @@ class LauncherApplication(Gtk.Application):
 
         if self.preview is not None:
             try:
-                preview_path = resolve_preview_path(self.config, state)
+                preview_path = resolve_preview_path(self.config, state, generate=False)
                 if preview_path is None:
                     self.preview.set_paintable(None)
+                    if state.media_kind == "video":
+                        self.ensure_preview_job(state.path)
                 else:
                     self.preview.set_filename(preview_path)
+            except Exception:
+                self.preview.set_paintable(None)
+        return False
+
+    def ensure_preview_job(self, path: str) -> None:
+        if self.preview_job_path == path:
+            return
+
+        self.preview_job_path = path
+        state = WallpaperState(backend="preview", path=path, media_kind="video")
+
+        def worker() -> None:
+            preview_path = resolve_preview_path(self.config, state, generate=True)
+            GLib.idle_add(self.apply_generated_preview, path, preview_path)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def apply_generated_preview(self, expected_path: str, preview_path: Optional[str]) -> bool:
+        self.preview_job_path = None
+        if (
+            preview_path
+            and self.current_state is not None
+            and self.current_state.path == expected_path
+            and self.preview is not None
+        ):
+            try:
+                self.preview.set_filename(preview_path)
             except Exception:
                 self.preview.set_paintable(None)
         return False

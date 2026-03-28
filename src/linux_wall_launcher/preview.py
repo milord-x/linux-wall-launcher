@@ -43,7 +43,7 @@ def _generate_video_thumb(path: str, out_path: str) -> bool:
     return rc == 0 and os.path.exists(out_path)
 
 
-def resolve_preview_path(config: AppConfig, state: Optional[WallpaperState]) -> Optional[str]:
+def resolve_preview_path(config: AppConfig, state: Optional[WallpaperState], generate: bool = True) -> Optional[str]:
     if state is None or not state.path or not os.path.exists(state.path):
         return None
 
@@ -54,7 +54,6 @@ def resolve_preview_path(config: AppConfig, state: Optional[WallpaperState]) -> 
     if os.path.exists(out_path):
         return out_path
 
-    if _generate_video_thumb(state.path, out_path):
+    if generate and _generate_video_thumb(state.path, out_path):
         return out_path
     return None
-
