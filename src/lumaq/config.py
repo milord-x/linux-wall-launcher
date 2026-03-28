@@ -94,6 +94,7 @@ height = 520
 preview_width = 540
 sidebar_width = 270
 resizable = false
+manage_geometry = false
 anchor = "center"
 margin_x = 0
 margin_y = 0
@@ -116,6 +117,7 @@ class WindowConfig:
     preview_width: int = 540
     sidebar_width: int = 270
     resizable: bool = False
+    manage_geometry: bool = False
     anchor: str = "center"
     margin_x: int = 0
     margin_y: int = 0
@@ -204,6 +206,7 @@ class AppConfig:
         self.window.preview_width = max(320, _int_value(window.get("preview_width"), self.window.preview_width))
         self.window.sidebar_width = max(220, _int_value(window.get("sidebar_width"), self.window.sidebar_width))
         self.window.resizable = _bool_value(window.get("resizable"), self.window.resizable)
+        self.window.manage_geometry = _bool_value(window.get("manage_geometry"), self.window.manage_geometry)
 
         anchor = window.get("anchor")
         if isinstance(anchor, str) and anchor.strip():

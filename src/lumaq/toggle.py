@@ -173,13 +173,13 @@ def main() -> int:
 
     hidden = find_client(config.app_id, include_hidden=True)
     if hidden is not None:
-        address = str(hidden.get("address") or "")
-        if address:
-            place_client(address, config)
         launch_app(config)
         return 0
 
     launch_app(config)
+    if not config.window.manage_geometry:
+        return 0
+
     client = wait_for_client(config.app_id)
     if client is None:
         return 0

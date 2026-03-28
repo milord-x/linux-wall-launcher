@@ -97,12 +97,13 @@ height = 520
 preview_width = 540
 sidebar_width = 270
 resizable = false
+manage_geometry = false
 anchor = "center"
 margin_x = 0
 margin_y = 0
 ```
 
-`anchor`, `margin_x`, and `margin_y` are used by `lumaq-toggle` on Hyprland when it places the floating window.
+`manage_geometry = true` enables Hyprland-side placement through `lumaq-toggle`. Keep it `false` if you want the smoothest open and manual moving behavior.
 
 ## Controls
 
