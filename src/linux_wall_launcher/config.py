@@ -12,6 +12,7 @@ class AppConfig:
     title: str = "Linux Wall Launcher"
     media_dir: str = os.path.expanduser("~/Pictures/Wallpapers")
     swww_cache_dir: str = os.path.expanduser("~/.cache/swww")
+    cache_dir: str = os.path.expanduser("~/.cache/linux-wall-launcher")
     hyprpaper_conf: str = os.path.expanduser("~/.config/hypr/hyprpaper.conf")
     fehbg_path: str = os.path.expanduser("~/.fehbg")
     nitrogen_conf: str = os.path.expanduser("~/.config/nitrogen/bg-saved.cfg")
@@ -39,4 +40,3 @@ class AppConfig:
             accent_color=accent,
             mpvpaper_args=shlex.split(mpvpaper_args) if mpvpaper_args else ["-f", "-s", "-o", "no-audio loop"],
         )
-

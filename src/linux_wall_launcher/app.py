@@ -11,6 +11,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk
 from .apps import app_label, list_desktop_apps_cached, score_match
 from .backends import BackendManager, WallpaperState, run
 from .config import AppConfig
+from .preview import resolve_preview_path
 from .styles import install_css
 
 
@@ -34,6 +35,7 @@ class LauncherApplication(Gtk.Application):
         self.current_wallpaper: Optional[str] = None
         self.wallpapers: List[str] = []
         self.wall_idx = 0
+        self.refresh_timer_started = False
 
     def do_activate(self) -> None:
         if self.window is not None:
@@ -129,8 +131,15 @@ class LauncherApplication(Gtk.Application):
         self.window.add_controller(controller)
 
         self.window.present()
+        self.ensure_refresh_timer()
         GLib.idle_add(self.load_initial_state)
         GLib.idle_add(self.focus_search)
+
+    def ensure_refresh_timer(self) -> None:
+        if self.refresh_timer_started:
+            return
+        GLib.timeout_add_seconds(1, self.poll_wallpaper_state)
+        self.refresh_timer_started = True
 
     def load_initial_state(self) -> bool:
         self.prepare_for_show()
@@ -146,6 +155,7 @@ class LauncherApplication(Gtk.Application):
 
     def refresh_wallpaper_state(self) -> bool:
         state = self.backend_manager.detect_state()
+        previous = self.current_state
         self.current_state = state
 
         if state is None or not state.path:
@@ -154,6 +164,14 @@ class LauncherApplication(Gtk.Application):
             if self.preview is not None:
                 self.preview.set_paintable(None)
             return False
+
+        if (
+            previous is None
+            or previous.path != state.path
+            or previous.backend != state.backend
+            or previous.output != state.output
+        ):
+            self.wallpapers = []
 
         self.current_wallpaper = state.path
         if self.preview_meta is not None:
@@ -165,16 +183,17 @@ class LauncherApplication(Gtk.Application):
 
         if self.preview is not None:
             try:
-                if state.media_kind == "video":
+                preview_path = resolve_preview_path(self.config, state)
+                if preview_path is None:
                     self.preview.set_paintable(None)
                 else:
-                    self.preview.set_filename(state.path)
+                    self.preview.set_filename(preview_path)
             except Exception:
                 self.preview.set_paintable(None)
         return False
 
     def ensure_media_loaded(self) -> None:
-        if self.wallpapers:
+        if self.wallpapers and (self.current_wallpaper is None or self.current_wallpaper in self.wallpapers):
             return
         self.wallpapers = self.backend_manager.list_media(self.current_wallpaper, self.current_state)
         if self.current_wallpaper and self.wallpapers:
@@ -187,6 +206,11 @@ class LauncherApplication(Gtk.Application):
         if self.search is not None:
             self.search.grab_focus()
         return False
+
+    def poll_wallpaper_state(self) -> bool:
+        if self.window is not None and self.window.is_visible():
+            self.refresh_wallpaper_state()
+        return True
 
     def on_key(self, _controller, keyval, _keycode, state) -> bool:
         if keyval == Gdk.KEY_q and (state & Gdk.ModifierType.CONTROL_MASK):

@@ -7,6 +7,7 @@ It is packaged as an installable program, not just a one-file script.
 ## What it supports
 
 - Fast reopen after first launch through single-instance hide/show behavior
+- Live refresh of the current wallpaper while the launcher is open or reopened
 - App search and launch from desktop entries
 - Wallpaper switching for:
   - `swww`
@@ -16,6 +17,7 @@ It is packaged as an installable program, not just a one-file script.
   - `feh`
   - `nitrogen`
 - Video wallpaper browsing when `mpvpaper` is the active backend
+- Video wallpaper preview through generated thumbnails via `ffmpeg`
 - Theme selection: `auto`, `dark`, `light`
 - Accent color override
 - Monitor/output override for output-aware backends
@@ -116,4 +118,3 @@ Local sanity check:
 ```bash
 python3 -m py_compile launcher src/linux_wall_launcher/*.py
 ```
-
