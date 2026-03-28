@@ -46,13 +46,13 @@ def class_pattern(app_id: str) -> re.Pattern[str]:
     return re.compile(rf"^{re.escape(app_id)}$")
 
 
-def find_visible_client(app_id: str) -> Optional[dict[str, Any]]:
+def find_client(app_id: str, include_hidden: bool = False) -> Optional[dict[str, Any]]:
     pattern = class_pattern(app_id)
     for client in load_json(["hyprctl", "-j", "clients"]):
         cls = str(client.get("class") or client.get("initialClass") or "")
         mapped = client.get("mapped", True)
         hidden = client.get("hidden", False)
-        if pattern.match(cls) and mapped and not hidden:
+        if pattern.match(cls) and mapped and (include_hidden or not hidden):
             return client
     return None
 
@@ -145,7 +145,7 @@ def place_client(address: str, config: AppConfig) -> None:
 def wait_for_client(app_id: str, timeout: float = 2.0) -> Optional[dict[str, Any]]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        client = find_visible_client(app_id)
+        client = find_client(app_id)
         if client is not None:
             return client
         time.sleep(0.05)
@@ -166,9 +166,17 @@ def main() -> int:
         launch_app(config)
         return 0
 
-    visible = find_visible_client(config.app_id)
+    visible = find_client(config.app_id)
     if visible is not None:
         close_client(config.app_id)
+        return 0
+
+    hidden = find_client(config.app_id, include_hidden=True)
+    if hidden is not None:
+        address = str(hidden.get("address") or "")
+        if address:
+            place_client(address, config)
+        launch_app(config)
         return 0
 
     launch_app(config)

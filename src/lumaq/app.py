@@ -7,7 +7,8 @@ import gi
 
 gi.require_version("Gdk", "4.0")
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk
+gi.require_version("Pango", "1.0")
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from .apps import app_label, list_desktop_apps_cached, score_match
 from .backends import BackendManager, WallpaperState, run
@@ -56,6 +57,8 @@ class LauncherApplication(Gtk.Application):
         self.window.set_default_size(self.config.window.width, self.config.window.height)
         self.window.set_resizable(self.config.window.resizable)
         self.window.set_hide_on_close(True)
+        if not self.config.window.resizable:
+            self.window.set_size_request(self.config.window.width, self.config.window.height)
 
         install_css(
             self.config.theme,
@@ -85,13 +88,17 @@ class LauncherApplication(Gtk.Application):
 
         self.preview_meta = Gtk.Label(xalign=0)
         self.preview_meta.set_name("preview-meta")
-        self.preview_meta.set_wrap(True)
+        self.preview_meta.set_wrap(False)
+        self.preview_meta.set_single_line_mode(True)
+        self.preview_meta.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
         self.preview_meta.set_margin_top(8)
         self.preview_meta.set_margin_start(6)
         self.preview_meta.set_margin_end(6)
+        self.preview_meta.set_visible(self.config.show_preview_meta)
         left.append(self.preview_meta)
 
         swipe = Gtk.GestureSwipe()
+        swipe.set_touch_only(True)
         swipe.connect("end", self.on_swipe_end)
         self.preview.add_controller(swipe)
 
@@ -169,7 +176,7 @@ class LauncherApplication(Gtk.Application):
         self.current_state = state
 
         if state is None or not state.path:
-            if self.preview_meta is not None:
+            if self.preview_meta is not None and self.config.show_preview_meta:
                 self.preview_meta.set_text("No supported wallpaper backend detected")
             if self.preview is not None:
                 self.preview.set_paintable(None)
@@ -184,7 +191,7 @@ class LauncherApplication(Gtk.Application):
             self.wallpapers = []
 
         self.current_wallpaper = state.path
-        if self.preview_meta is not None:
+        if self.preview_meta is not None and self.config.show_preview_meta:
             bits = [state.backend]
             if state.output:
                 bits.append(state.output)

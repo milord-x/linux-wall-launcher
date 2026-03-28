@@ -78,6 +78,7 @@ media_dir = "~/Pictures/Wallpapers"
 output = ""
 poll_interval = 1
 hide_on_escape = true
+show_preview_meta = true
 quit_chars = ["q", "й"]
 mpvpaper_args = ["-f", "-s", "-o", "no-audio loop"]
 
@@ -140,6 +141,7 @@ class AppConfig:
     panel_soft_color: Optional[str] = None
     poll_interval: int = 1
     hide_on_escape: bool = True
+    show_preview_meta: bool = True
     quit_chars: list[str] = field(default_factory=lambda: ["q", "й"])
     mpvpaper_args: list[str] = field(default_factory=lambda: ["-f", "-s", "-o", "no-audio loop"])
     window: WindowConfig = field(default_factory=WindowConfig)
@@ -171,6 +173,7 @@ class AppConfig:
 
         self.poll_interval = max(0, _int_value(app.get("poll_interval"), self.poll_interval))
         self.hide_on_escape = _bool_value(app.get("hide_on_escape"), self.hide_on_escape)
+        self.show_preview_meta = _bool_value(app.get("show_preview_meta"), self.show_preview_meta)
 
         quit_chars = _string_list(app.get("quit_chars"))
         if quit_chars:
@@ -237,6 +240,10 @@ class AppConfig:
         media_dir = _env("LUMAQ_MEDIA_DIR", "WALL_DIR")
         if media_dir is not None:
             self.media_dir = _expand_path(media_dir)
+
+        show_preview_meta = _env("LUMAQ_SHOW_PREVIEW_META")
+        if show_preview_meta is not None:
+            self.show_preview_meta = _bool_value(show_preview_meta, self.show_preview_meta)
 
         quit_chars = _env("LUMAQ_QUIT_CHARS")
         if quit_chars is not None:

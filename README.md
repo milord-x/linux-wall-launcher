@@ -82,6 +82,7 @@ media_dir = "~/Pictures/Wallpapers"
 output = ""
 poll_interval = 1
 hide_on_escape = true
+show_preview_meta = true
 quit_chars = ["q", "й"]
 
 [theme]
