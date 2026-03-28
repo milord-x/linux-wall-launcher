@@ -1,6 +1,20 @@
-# Lumaq
+<h1 align="center">Lumaq</h1>
 
-`Lumaq` is a GTK4 launcher for Linux that keeps the current wallpaper visible, tracks external wallpaper changes, and can switch both static and video wallpapers.
+<p align="center">
+  <strong>Fast GTK launcher with wallpaper-aware preview for Linux.</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11+" />
+  <img src="https://img.shields.io/badge/GTK-4-1f6feb?style=for-the-badge&logo=gnome&logoColor=white" alt="GTK 4" />
+  <img src="https://img.shields.io/badge/Linux-desktop-222222?style=for-the-badge&logo=linux&logoColor=white" alt="Linux desktop" />
+  <img src="https://img.shields.io/badge/Wayland%20%2F%20X11-supported-5b8c5a?style=for-the-badge&logo=wayland&logoColor=white" alt="Wayland and X11" />
+  <img src="https://img.shields.io/badge/FFmpeg-video%20thumbs-8f1d21?style=for-the-badge&logo=ffmpeg&logoColor=white" alt="FFmpeg video thumbnails" />
+</p>
+
+<p align="center">
+  Keeps the current wallpaper visible, tracks external wallpaper changes, and switches both static and video wallpapers.
+</p>
 
 It is packaged as an installable program, not as a single local script.
 
