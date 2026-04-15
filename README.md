@@ -64,7 +64,7 @@ lumaq-toggle
 Run from source:
 
 ```bash
-python3 -m lumaq.main
+PYTHONPATH=src python3 -m lumaq.main
 ```
 
 ## Config path
@@ -165,5 +165,5 @@ src/lumaq/main.py
 Local sanity check:
 
 ```bash
-python3 -m py_compile lumaq src/lumaq/*.py
+python3 -m py_compile src/lumaq/*.py
 ```
