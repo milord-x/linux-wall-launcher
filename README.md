@@ -61,6 +61,18 @@ lumaq
 lumaq-toggle
 ```
 
+If the commands are not in your shell yet, run `pipx ensurepath` and restart the terminal session.
+
+## First run
+
+Generate the default config and inspect the active path before launching the UI:
+
+```bash
+lumaq --write-default-config
+lumaq --print-config-path
+lumaq
+```
+
 Run from source:
 
 ```bash
